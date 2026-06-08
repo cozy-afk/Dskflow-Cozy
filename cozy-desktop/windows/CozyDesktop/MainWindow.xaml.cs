@@ -25,12 +25,33 @@ public partial class MainWindow : Window
     private Tile? _dragging;
     private Point _dragOffset;
 
+    // ---- auto-add + MWB-style status ----
+    private enum DotState { NotConnected, Pending, Connected, Error }
+    private static readonly Brush GreyDot = Frozen(0x71, 0x71, 0x71);
+    private static readonly Brush OrangeDot = Frozen(0xFF, 0xA5, 0x00);
+    private static readonly Brush GreenDot = Frozen(0x2E, 0xC4, 0x6B);
+    private static readonly Brush RedDot = Frozen(0xE5, 0x4B, 0x4B);
+    private readonly HashSet<string> _pending = new();
+    private readonly System.Windows.Threading.DispatcherTimer _restartTimer;
+    private bool _restarting;
+
+    private static Brush Frozen(byte r, byte g, byte b)
+    {
+        var br = new SolidColorBrush(Color.FromRgb(r, g, b));
+        br.Freeze();
+        return br;
+    }
+
     public MainWindow()
     {
         InitializeComponent();
 
         _controller.Log += OnLog;
         _controller.RunningChanged += OnRunningChanged;
+
+        // Coalesce a burst of new-device detections into a single engine reload.
+        _restartTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1400) };
+        _restartTimer.Tick += (_, _) => { _restartTimer.Stop(); AutoRestart(); };
 
         IpText.Text = $"This PC: {GetLanIp()}";
 
@@ -81,7 +102,7 @@ public partial class MainWindow : Window
             Margin = new Thickness(0, 6, 6, 0),
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Top,
-            Fill = isPc ? (Brush)FindResource("Accent2") : Brushes.Gray,
+            Fill = isPc ? GreenDot : GreyDot,
             ToolTip = isPc ? "This PC (server)" : "Not connected",
         };
         var inner = new Grid();
@@ -230,7 +251,7 @@ public partial class MainWindow : Window
             StatusDetail.Text = running
                 ? "Waiting for devices to connect. A tile turns green when its device connects."
                 : "Press Start to share this PC's keyboard and mouse with all your devices.";
-            if (!running) ResetDeviceStatuses();
+            if (!running && !_restarting) ResetDeviceStatuses();
         });
     }
 
@@ -254,14 +275,21 @@ public partial class MainWindow : Window
         catch (Exception ex) { OnLog($"Setup could not start: {ex.Message}"); }
     }
 
-    // ---- logging ----
+    // ---- logging + live status + auto-add ----
     private void OnLog(string line)
     {
-        // Live connection status straight from the engine log.
-        var c = Regex.Match(line, "client \"(.+?)\" has connected");
-        if (c.Success) SetClientStatus(c.Groups[1].Value, true);
-        var d = Regex.Match(line, "client \"(.+?)\" has disconnected");
-        if (d.Success) SetClientStatus(d.Groups[1].Value, false);
+        // A device successfully joined.
+        var conn = Regex.Match(line, "client \"(.+?)\" has connected");
+        if (conn.Success) { var n = conn.Groups[1].Value; _pending.Remove(n); SetClientStatus(n, DotState.Connected); }
+
+        // A device dropped (ignore if we're mid auto-add for it).
+        var disc = Regex.Match(line, "client \"(.+?)\" has disconnected");
+        if (disc.Success && !_pending.Contains(disc.Groups[1].Value))
+            SetClientStatus(disc.Groups[1].Value, DotState.NotConnected);
+
+        // A device dialed in but isn't in the layout yet -> auto-add it (MWB-style).
+        var unk = Regex.Match(line, "unrecognised client name \"(.+?)\"");
+        if (unk.Success) HandleUnknownClient(unk.Groups[1].Value);
 
         Dispatcher.Invoke(() =>
         {
@@ -270,26 +298,74 @@ public partial class MainWindow : Window
         });
     }
 
-    private void SetClientStatus(string screenName, bool connected)
+    private Brush DotBrush(DotState s) => s switch
+    {
+        DotState.Connected => GreenDot,
+        DotState.Pending => OrangeDot,
+        DotState.Error => RedDot,
+        _ => GreyDot,
+    };
+
+    private void SetClientStatus(string screenName, DotState state)
     {
         Dispatcher.Invoke(() =>
         {
             foreach (var t in _tiles.Where(t => !t.IsPc && t.Status != null))
-            {
                 if (DeskflowController.SanitizeName(t.Name) == screenName)
                 {
-                    t.Status!.Fill = connected ? (Brush)FindResource("Accent2") : Brushes.Gray;
-                    t.Status!.ToolTip = connected ? "Connected" : "Not connected";
+                    t.Status!.Fill = DotBrush(state);
+                    t.Status!.ToolTip = state switch
+                    {
+                        DotState.Connected => "Connected",
+                        DotState.Pending => "Connecting…",
+                        DotState.Error => "Error",
+                        _ => "Not connected",
+                    };
                 }
-            }
         });
+    }
+
+    /// <summary>A device dialed in that isn't in the layout — add it and reload so it connects.</summary>
+    private void HandleUnknownClient(string rawName)
+    {
+        var name = DeskflowController.SanitizeName(rawName);
+        Dispatcher.Invoke(() =>
+        {
+            bool exists = _tiles.Any(t => !t.IsPc && DeskflowController.SanitizeName(t.Name) == name);
+            if (!exists)
+            {
+                for (int row = 0; row < 6 && !exists; row++)
+                    for (int col = 0; col < 8; col++)
+                        if (!_tiles.Any(t => t.Col == col && t.Row == row))
+                        { CreateTile(rawName, false, col, row); exists = true; break; }
+                OnLog($"New device \"{name}\" detected — adding it to your layout.");
+            }
+            _pending.Add(name);
+            SetClientStatus(name, DotState.Pending);
+            _restartTimer.Stop(); _restartTimer.Start(); // debounce a burst into one reload
+        });
+    }
+
+    /// <summary>Reload the engine so newly-added devices are accepted (brief restart).</summary>
+    private async void AutoRestart()
+    {
+        if (!_controller.IsRunning) { _pending.Clear(); return; }
+        var (devices, links) = BuildGraph();
+        int port = int.TryParse(PortBox.Text, out var p) ? p : 24800;
+        bool tls = TlsCheck.IsChecked == true;
+        OnLog($"Reloading layout to welcome: {string.Join(", ", _pending)}");
+        _restarting = true;
+        _controller.Stop();
+        await System.Threading.Tasks.Task.Delay(700); // let the port free up
+        _controller.StartGraph(devices, links, port, tls);
+        _restarting = false;
     }
 
     private void ResetDeviceStatuses()
     {
         foreach (var t in _tiles.Where(t => !t.IsPc && t.Status != null))
         {
-            t.Status!.Fill = Brushes.Gray;
+            t.Status!.Fill = GreyDot;
             t.Status!.ToolTip = "Not connected";
         }
     }
