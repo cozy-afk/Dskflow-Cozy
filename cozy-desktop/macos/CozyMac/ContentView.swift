@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var controller = DeskflowController()
+    @StateObject private var handoff = HandoffManager()
 
     @AppStorage("serverIP") private var serverIP = "192.168.50.33"
     @AppStorage("port") private var port = 24800
@@ -38,7 +39,8 @@ struct ContentView: View {
                         }
                         Spacer()
                         Button(controller.isRunning ? "Disconnect" : "Connect") {
-                            if controller.isRunning { controller.stop() }
+                            if controller.isRunning { controller.stop(); handoff.stop() }
+                            else if handoff.enabled { handoff.startAsController(port: port, tls: tls) }
                             else { controller.start(serverIP: serverIP, port: port, screenName: screenName, tls: tls) }
                         }
                         .buttonStyle(.borderedProminent)
@@ -78,6 +80,18 @@ struct ContentView: View {
                     }
                 }
 
+                // Multi-controller (beta)
+                card {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Multi-controller (beta)").font(.headline)
+                        Text("Type on whichever machine you're at and it takes over. Pairs with the PC's Cozy. ~1s switch; untested across machines.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Toggle("Hand control between this Mac and the PC", isOn: $handoff.enabled)
+                        labeledField("The PC's IP address", text: $handoff.peerIP)
+                        Text(roleText).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+
                 // Activity
                 card {
                     VStack(alignment: .leading, spacing: 8) {
@@ -93,6 +107,15 @@ struct ContentView: View {
                 }
             }
             .padding(24)
+        }
+        .onAppear { handoff.bind(controller) }
+    }
+
+    private var roleText: String {
+        switch controller.role {
+        case .server: return "Role: controlling (this Mac drives)"
+        case .client: return "Role: receiving (the PC drives)"
+        case .none: return "Role: idle"
         }
     }
 

@@ -8,10 +8,16 @@ import Foundation
 /// settings file is a Qt-INI with the server address, name, port and TLS flag.
 @MainActor
 final class DeskflowController: ObservableObject {
+    enum Role { case none, server, client }
+
     @Published var isRunning = false
+    @Published var role: Role = .none
     @Published var log: String = ""
 
     private var process: Process?
+
+    /// This Mac's screen name in deskflow.
+    var macName: String { Self.sanitize(Host.current().localizedName ?? "macbook") }
 
     /// Common install locations for the deskflow engine on macOS.
     func findEngineBinary() -> String? {
@@ -52,20 +58,62 @@ final class DeskflowController: ObservableObject {
         return url
     }
 
+    /// Write a server config (this Mac in the middle, each peer on an edge) + settings.
+    private func writeServerSettings(peers: [String], port: Int, tls: Bool) -> URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Cozy", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let sides = ["left", "right", "up", "down"]
+        let opp = ["left": "right", "right": "left", "up": "down", "down": "up"]
+        var screens = "section: screens\n\t\(macName):\n"
+        var links = "section: links\n\t\(macName):\n"
+        for (i, peer) in peers.enumerated() { screens += "\t\(peer):\n"; links += "\t\t\(sides[i % 4]) = \(peer)\n" }
+        for (i, peer) in peers.enumerated() { links += "\t\(peer):\n\t\t\(opp[sides[i % 4]]!) = \(macName)\n" }
+        let conf = screens + "end\n" + links + "end\n"
+        let confURL = dir.appendingPathComponent("cozy-server.conf")
+        try? conf.write(to: confURL, atomically: true, encoding: .utf8)
+
+        let ini = """
+        [core]
+        coreMode=server
+        computerName=\(macName)
+        port=\(port)
+        [security]
+        tlsEnabled=\(tls ? "true" : "false")
+        [server]
+        externalConfig=true
+        externalConfigFile=\(confURL.path)
+        """
+        let url = dir.appendingPathComponent("cozy-server-settings.conf")
+        try? ini.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
     /// Connect this Mac to the PC server as a client.
     func start(serverIP: String, port: Int, screenName: String, tls: Bool) {
+        let name = Self.sanitize(screenName)
+        let settings = writeSettings(serverIP: serverIP, port: port, screenName: name, tls: tls)
+        launch(args: ["client", "-s", settings.path, "--new-instance"],
+               summary: "Connecting to \(serverIP):\(port) as \"\(name)\"…", role: .client)
+    }
+
+    /// Become the controller: run as server so the PC + tablets receive from this Mac.
+    func startServer(peers: [String], port: Int, tls: Bool) {
+        let settings = writeServerSettings(peers: peers, port: port, tls: tls)
+        launch(args: ["server", "-s", settings.path, "--new-instance"],
+               summary: "Controlling from this Mac on port \(port).", role: .server)
+    }
+
+    private func launch(args: [String], summary: String, role: Role) {
         guard !isRunning else { return }
         guard let bin = findEngineBinary() else {
             append("Cozy engine not found. Run macos/install-cozy-mac.sh first.")
             return
         }
-        let name = Self.sanitize(screenName)
-        let settings = writeSettings(serverIP: serverIP, port: port, screenName: name, tls: tls)
-
         let p = Process()
         p.executableURL = URL(fileURLWithPath: bin)
-        p.arguments = ["client", "-s", settings.path, "--new-instance"]
-
+        p.arguments = args
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe
@@ -76,18 +124,14 @@ final class DeskflowController: ObservableObject {
             }
         }
         p.terminationHandler = { [weak self] _ in
-            Task { @MainActor in
-                self?.isRunning = false
-                self?.append("Disconnected.")
-            }
+            Task { @MainActor in self?.isRunning = false; self?.role = .none; self?.append("Engine stopped.") }
         }
-
         do {
-            append("Connecting to \(serverIP):\(port) as \"\(name)\"…")
-            append("Make sure this Mac's name is in the PC server's screen layout.")
+            append(summary)
             try p.run()
             process = p
             isRunning = true
+            self.role = role
         } catch {
             append("Failed to start: \(error.localizedDescription)")
         }
@@ -97,7 +141,11 @@ final class DeskflowController: ObservableObject {
         process?.terminate()
         process = nil
         isRunning = false
+        role = .none
     }
+
+    /// Public log hook for the handoff manager.
+    func note(_ s: String) { append(s) }
 
     private func append(_ s: String) {
         log += s.hasSuffix("\n") ? s : s + "\n"
