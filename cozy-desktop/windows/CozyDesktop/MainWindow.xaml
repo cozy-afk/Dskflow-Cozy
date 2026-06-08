@@ -116,6 +116,20 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Multi-controller (beta) -->
+                <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Multi-controller (beta)" FontWeight="SemiBold" FontSize="15" />
+                        <TextBlock Text="Share control with another Windows/Mac computer: type on whichever machine you're sitting at and it takes over. (Desktop↔desktop; ~1s switch. Untested across machines — feedback welcome.)"
+                                   Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,8" />
+                        <CheckBox x:Name="MultiEnable" Content="Enable handing control between computers"
+                                  Foreground="{StaticResource Ink}" />
+                        <TextBlock Text="Other computer's IP address" Foreground="{StaticResource Muted}" Margin="2,12,0,4" />
+                        <TextBox x:Name="PeerIpBox" Width="220" HorizontalAlignment="Left" />
+                        <TextBlock x:Name="RoleText" Text="Role: idle" Foreground="{StaticResource Muted}" Margin="2,10,0,0" />
+                    </StackPanel>
+                </Border>
+
                 <!-- Activity log -->
                 <Border Style="{StaticResource Card}" Margin="0,14,0,0">
                     <StackPanel>

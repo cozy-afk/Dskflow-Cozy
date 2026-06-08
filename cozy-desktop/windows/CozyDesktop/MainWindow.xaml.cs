@@ -35,6 +35,12 @@ public partial class MainWindow : Window
     private readonly System.Windows.Threading.DispatcherTimer _restartTimer;
     private bool _restarting;
 
+    // ---- multi-controller handoff ----
+    private readonly LocalInputMonitor _input = new();
+    private readonly PeerCoordinator _peer = new();
+    private long _lastSwitch;
+    private bool MultiOn => MultiEnable.IsChecked == true;
+
     private static Brush Frozen(byte r, byte g, byte b)
     {
         var br = new SolidColorBrush(Color.FromRgb(r, g, b));
@@ -52,6 +58,11 @@ public partial class MainWindow : Window
         // Coalesce a burst of new-device detections into a single engine reload.
         _restartTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1400) };
         _restartTimer.Tick += (_, _) => { _restartTimer.Stop(); AutoRestart(); };
+
+        // Multi-controller handoff wiring.
+        _input.PhysicalActivity += OnLocalActivity;
+        _peer.PeerClaimedControl += OnPeerClaim;
+        _peer.Log += OnLog;
 
         IpText.Text = $"This PC: {GetLanIp()}";
 
@@ -233,12 +244,83 @@ public partial class MainWindow : Window
     // ---- start / stop ----
     private void StartButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_controller.IsRunning) { _controller.Stop(); return; }
+        if (_controller.IsRunning)
+        {
+            _controller.Stop();
+            _input.Stop();
+            _peer.Dispose();
+            UpdateRoleText();
+            return;
+        }
         var (devices, links) = BuildGraph();
         if (devices.Count == 0) { OnLog("Add at least one device first."); return; }
         int port = int.TryParse(PortBox.Text, out var p) ? p : 24800;
         ResetDeviceStatuses(); // grey until each device actually connects
         _controller.StartGraph(devices, links, port, TlsCheck.IsChecked == true);
+
+        if (MultiOn)
+        {
+            _peer.Start(_controller.PcName, PeerIpBox.Text.Trim());
+            _input.Start();
+            _peer.BroadcastClaim(); // we begin as the active controller
+            OnLog("Multi-controller on — type on this PC to keep control; type on the other computer to hand it over.");
+        }
+        UpdateRoleText();
+    }
+
+    // ---- handoff ----
+    private async void OnLocalActivity()
+    {
+        // Hook fires on the UI thread. Act only when sharing in multi mode and we
+        // are NOT already the controller (i.e., the user just returned to this PC).
+        if (!MultiOn || !_controller.IsRunning) return;
+        if (_controller.Role == DeskflowController.EngineRole.Server) return;
+        var now = Environment.TickCount64;
+        if (now - _lastSwitch < 1500) return;
+        _lastSwitch = now;
+
+        OnLog("You're using this PC — taking control here.");
+        _peer.BroadcastClaim();
+        _restarting = true;
+        _controller.Stop();
+        await System.Threading.Tasks.Task.Delay(700);
+        var (devices, links) = BuildGraph();
+        int port = int.TryParse(PortBox.Text, out var p) ? p : 24800;
+        _controller.StartGraph(devices, links, port, TlsCheck.IsChecked == true);
+        _restarting = false;
+        UpdateRoleText();
+    }
+
+    private void OnPeerClaim(string name, string ip) => Dispatcher.Invoke(() => BecomeClient(name, ip));
+
+    private async void BecomeClient(string name, string ip)
+    {
+        if (!MultiOn || !_controller.IsRunning) return;
+        var now = Environment.TickCount64;
+        if (now - _lastSwitch < 1500) return;
+        _lastSwitch = now;
+
+        OnLog($"{name} took control — this PC will receive from {ip}.");
+        int port = int.TryParse(PortBox.Text, out var p) ? p : 24800;
+        _restarting = true;
+        _controller.Stop();
+        await System.Threading.Tasks.Task.Delay(700);
+        _controller.StartClient(ip, port, _controller.PcName, TlsCheck.IsChecked == true);
+        _restarting = false;
+        UpdateRoleText();
+    }
+
+    private void UpdateRoleText()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            RoleText.Text = "Role: " + (_controller.Role switch
+            {
+                DeskflowController.EngineRole.Server => "controlling (this PC drives)",
+                DeskflowController.EngineRole.Client => "receiving (other computer drives)",
+                _ => "idle",
+            });
+        });
     }
 
     private void OnRunningChanged(bool running)
@@ -398,6 +480,8 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _controller.Stop();
+        _input.Dispose();
+        _peer.Dispose();
         base.OnClosed(e);
     }
 

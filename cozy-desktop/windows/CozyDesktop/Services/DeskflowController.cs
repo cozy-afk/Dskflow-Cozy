@@ -24,6 +24,9 @@ public sealed class DeskflowController
 
     private Process? _proc;
 
+    public enum EngineRole { None, Server, Client }
+    public EngineRole Role { get; private set; } = EngineRole.None;
+
     public bool IsRunning => _proc is { HasExited: false };
 
     /// <summary>Search common install locations for the deskflow core engine.</summary>
@@ -207,14 +210,43 @@ public sealed class DeskflowController
         if (deviceNames.Count == 0) { Log?.Invoke("Add at least one device to share with."); return; }
 
         var settings = WriteConfigGraph(deviceNames, links, port, tls);
-        LaunchEngine(settings, $"Sharing on port {port} with: {string.Join(", ", deviceNames)}.");
+        Role = EngineRole.Server;
+        LaunchEngine($"server -s \"{settings}\" --new-instance",
+                     $"Sharing on port {port} with: {string.Join(", ", deviceNames)}.");
     }
 
-    /// <summary>Launch deskflow-core as a server against the given settings file.</summary>
-    private void LaunchEngine(string settingsPath, string summary)
+    /// <summary>
+    /// Run this machine as a CLIENT of another controller (used by multi-controller
+    /// handoff: when another desktop is driving, we become a receiver).
+    /// </summary>
+    public void StartClient(string serverIp, int port, string screenName, bool tls)
+    {
+        if (IsRunning) return;
+        if (FindServerExe() == null) { Log?.Invoke("deskflow engine not found."); return; }
+
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Cozy");
+        Directory.CreateDirectory(dir);
+        var ini = new StringBuilder();
+        ini.AppendLine("[core]");
+        ini.AppendLine("coreMode=client");
+        ini.AppendLine($"computerName={SanitizeName(screenName)}");
+        ini.AppendLine($"port={port}");
+        ini.AppendLine("[client]");
+        ini.AppendLine($"remoteHost={serverIp}");
+        ini.AppendLine("[security]");
+        ini.AppendLine($"tlsEnabled={(tls ? "true" : "false")}");
+        var settings = Path.Combine(dir, "cozy-client-settings.conf");
+        File.WriteAllText(settings, ini.ToString());
+
+        Role = EngineRole.Client;
+        LaunchEngine($"client -s \"{settings}\" --new-instance",
+                     $"Receiving from controller at {serverIp}:{port} as \"{SanitizeName(screenName)}\".");
+    }
+
+    /// <summary>Launch deskflow-core with the given arguments (server or client).</summary>
+    private void LaunchEngine(string args, string summary)
     {
         var exe = FindServerExe()!;
-        var args = $"server -s \"{settingsPath}\" --new-instance";
         Log?.Invoke($"Launching engine: {Path.GetFileName(exe)} {args}");
 
         var psi = new ProcessStartInfo
@@ -317,6 +349,7 @@ public sealed class DeskflowController
         finally
         {
             _proc = null;
+            Role = EngineRole.None;
             RunningChanged?.Invoke(false);
         }
     }
