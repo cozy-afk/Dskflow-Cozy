@@ -24,9 +24,20 @@ Windows PC (stock deskflow server)  ──TCP 24800, deskflow protocol──▶ 
 ## What's in this repo
 | Path | What it is | Runnable now? |
 |------|-----------|---------------|
-| `deskflow/` | Upstream deskflow source (the base/reference) | Build per upstream docs |
-| `cozy-client/` | **New** Android client — speaks the deskflow protocol, injects via accessibility | Needs Android Studio |
+| `cozy-client/` | **New** Android client — speaks the deskflow protocol, injects via accessibility | Needs Android Studio (or grab the built APK from Releases) |
 | `cozy-layout-editor/index.html` | **New** drag-and-drop device/display grid editor → exports server config | ✅ open in any browser |
+| `windows/install-cozy-windows.ps1` | Installs + configures **deskflow** (server) on the PC | ✅ run elevated |
+| `macos/install-cozy-mac.sh` | Installs + configures **deskflow** on the Mac | ✅ run in Terminal |
+| `dist/` | The built **Cozy APK** + Android USB installer | ✅ |
+
+## Which "app" do I install where?
+- **Android** → the custom **Cozy** app (this repo's APK — see Releases).
+- **Windows** → stock **deskflow** (no custom app). Run `windows/install-cozy-windows.ps1`.
+- **macOS** → stock **deskflow** (no custom app). Run `macos/install-cozy-mac.sh`.
+
+> Only Android needed new software. Windows/Mac use **deskflow** unchanged — the scripts
+> above just install it from its official source and open the right firewall/permissions.
+> The deskflow binaries are **not** vendored here; the scripts fetch them.
 
 ## The Android client (`cozy-client/`)
 A byte-faithful Kotlin reimplementation of the deskflow **client** side:
