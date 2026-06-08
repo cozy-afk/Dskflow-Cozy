@@ -2,7 +2,8 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="20dp">
+    android:fillViewport="true"
+    android:padding="24dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -13,15 +14,24 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/app_name"
-            android:textSize="24sp"
-            android:textStyle="bold"
-            android:paddingBottom="4dp" />
+            android:textSize="30sp"
+            android:textStyle="bold" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/tagline"
-            android:paddingBottom="16dp" />
+            android:textSize="14sp"
+            android:paddingBottom="20dp" />
+
+        <!-- STEP 1: permissions -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Step 1 · Permissions"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:paddingBottom="6dp" />
 
         <TextView
             android:id="@+id/a11yStatus"
@@ -42,55 +52,121 @@
             android:layout_height="wrap_content"
             android:text="@string/enable_keyboard" />
 
+        <!-- STEP 2: connect -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Step 2 · Connect to your PC"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:paddingTop="22dp"
+            android:paddingBottom="2dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enter the IP shown in the Cozy app on your PC, then tap Connect."
+            android:textSize="13sp"
+            android:paddingBottom="12dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Your PC's IP address"
+            android:textStyle="bold"
+            android:paddingBottom="2dp" />
         <EditText
             android:id="@+id/host"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="PC IP address (e.g. 192.168.1.20)"
-            android:inputType="text"
-            android:layout_marginTop="16dp" />
-
-        <EditText
-            android:id="@+id/port"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Port (default 24800)"
-            android:inputType="number" />
-
-        <EditText
-            android:id="@+id/name"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Client name (must match server config)"
+            android:hint="e.g. 192.168.50.33"
             android:inputType="text" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="10dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginEnd="8dp">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Port"
+                    android:textStyle="bold"
+                    android:paddingBottom="2dp" />
+                <EditText
+                    android:id="@+id/port"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="24800"
+                    android:inputType="number" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="This tablet's name"
+                    android:textStyle="bold"
+                    android:paddingBottom="2dp" />
+                <EditText
+                    android:id="@+id/name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="android-tablet"
+                    android:inputType="text" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="The name must match what you typed for this tablet in the PC app."
+            android:textSize="12sp"
+            android:paddingTop="4dp" />
 
         <CheckBox
             android:id="@+id/useTls"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:checked="true"
-            android:text="Use TLS (leave on unless the server has encryption disabled)" />
+            android:paddingTop="8dp"
+            android:text="Use encryption (turn OFF if the PC has TLS disabled)" />
 
         <Button
             android:id="@+id/connect"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="56dp"
             android:text="Connect"
-            android:layout_marginTop="12dp" />
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp" />
 
         <Button
             android:id="@+id/disconnect"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Disconnect" />
+            android:text="Disconnect"
+            android:layout_marginTop="4dp" />
 
         <TextView
             android:id="@+id/status"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Disconnected"
             android:textSize="16sp"
-            android:paddingTop="16dp" />
+            android:gravity="center"
+            android:paddingTop="18dp" />
 
     </LinearLayout>
 </ScrollView>

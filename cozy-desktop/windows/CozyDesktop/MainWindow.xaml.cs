@@ -50,18 +50,20 @@ public partial class MainWindow : Window
     // ---- device rows ----
     private void AddDevice_Click(object sender, RoutedEventArgs e)
     {
-        // Pick the first edge not already taken.
-        var used = _rows.Select(r => r.Side).ToHashSet();
-        var side = Sides.FirstOrDefault(s => !used.Contains(s)) ?? "right";
-        AddDeviceRow(side == "right" && used.Contains("right") ? "right" : "new-device", side);
+        // Prefer a free edge on the PC; if all four are taken, the user can chain it
+        // onto another device with the "of:" button.
+        var usedPcSides = _rows.Where(r => r.RelativeToLabel == "This PC").Select(r => r.Side).ToHashSet();
+        var side = Sides.FirstOrDefault(s => !usedPcSides.Contains(s)) ?? "right";
+        AddDeviceRow("new-device", side, "This PC");
     }
 
-    private void AddDeviceRow(string name, string side)
+    private void AddDeviceRow(string name, string side, string relativeTo = "This PC")
     {
-        var row = new DeviceRow { Side = side };
+        var row = new DeviceRow { Side = side, RelativeToLabel = relativeTo };
 
         var grid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -84,6 +86,27 @@ public partial class MainWindow : Window
         };
         Grid.SetColumn(sideBtn, 1);
 
+        // "attaches to" cycle: This PC -> each OTHER device -> back. Enables chaining.
+        var ofBtn = new Button
+        {
+            Content = "of: " + row.RelativeToLabel,
+            Style = (Style)FindResource("GhostButton"),
+            Margin = new Thickness(0, 0, 8, 0),
+            MinWidth = 120,
+        };
+        ofBtn.Click += (_, _) =>
+        {
+            var targets = new List<string> { "This PC" };
+            targets.AddRange(_rows.Where(r => r != row)
+                .Select(r => DeskflowController.SanitizeName(r.NameBox.Text)));
+            int idx = targets.IndexOf(row.RelativeToLabel);
+            if (idx < 0) idx = 0;
+            idx = (idx + 1) % targets.Count;
+            row.RelativeToLabel = targets[idx];
+            ofBtn.Content = "of: " + targets[idx];
+        };
+        Grid.SetColumn(ofBtn, 2);
+
         var removeBtn = new Button
         {
             Content = "✕",
@@ -95,10 +118,11 @@ public partial class MainWindow : Window
             _rows.Remove(row);
             DeviceListPanel.Children.Remove(grid);
         };
-        Grid.SetColumn(removeBtn, 2);
+        Grid.SetColumn(removeBtn, 3);
 
         grid.Children.Add(nameBox);
         grid.Children.Add(sideBtn);
+        grid.Children.Add(ofBtn);
         grid.Children.Add(removeBtn);
 
         DeviceListPanel.Children.Add(grid);
@@ -107,20 +131,20 @@ public partial class MainWindow : Window
 
     private List<Device> CollectDevices()
     {
+        // Names of all non-empty devices, used to validate "attaches to" targets.
+        var valid = _rows.Where(r => !string.IsNullOrWhiteSpace(r.NameBox.Text))
+                         .Select(r => DeskflowController.SanitizeName(r.NameBox.Text))
+                         .ToHashSet();
+
         var list = new List<Device>();
-        var usedSides = new HashSet<string>();
         foreach (var r in _rows)
         {
-            var name = DeskflowController.SanitizeName(r.NameBox.Text);
             if (string.IsNullOrWhiteSpace(r.NameBox.Text)) continue;
-            // If two devices share a side, nudge the later one so links stay valid.
-            var side = r.Side;
-            if (!usedSides.Add(side))
-            {
-                side = Sides.FirstOrDefault(s => !usedSides.Contains(s)) ?? side;
-                usedSides.Add(side);
-            }
-            list.Add(new Device(name, side));
+            var name = DeskflowController.SanitizeName(r.NameBox.Text);
+            // "This PC" (or a stale target) -> empty = attach to PC.
+            var rel = r.RelativeToLabel == "This PC" ? "" : DeskflowController.SanitizeName(r.RelativeToLabel);
+            if (rel == name || !valid.Contains(rel)) rel = "";   // no self-attach / stale -> PC
+            list.Add(new Device(name, r.Side, rel));
         }
         return list;
     }
@@ -226,5 +250,6 @@ public partial class MainWindow : Window
     {
         public TextBox NameBox = null!;
         public string Side = "right";
+        public string RelativeToLabel = "This PC";
     }
 }

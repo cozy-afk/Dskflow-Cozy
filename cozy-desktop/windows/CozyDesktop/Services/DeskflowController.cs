@@ -4,8 +4,13 @@ using System.Text;
 
 namespace CozyDesktop.Services;
 
-/// <summary>An auxiliary device (Mac, tablet…) and which edge of the PC it sits on.</summary>
-public record Device(string Name, string Side);
+/// <summary>
+/// An auxiliary device (Mac, tablet…), which edge it sits on, and which screen
+/// it attaches to. RelativeTo is the screen name it borders; empty means the PC.
+/// Attaching to another device enables chaining (device-beyond-device), so the
+/// number of devices is unlimited.
+/// </summary>
+public record Device(string Name, string Side, string RelativeTo = "");
 
 /// <summary>
 /// Hides deskflow entirely. Cozy presents its own UI; this class finds the
@@ -83,14 +88,27 @@ public sealed class DeskflowController
             conf.AppendLine($"\t{c.Name}:");
         conf.AppendLine("end");
 
-        conf.AppendLine("section: links");
-        conf.AppendLine($"\t{pcName}:");
-        foreach (var c in clients)
-            conf.AppendLine($"\t\t{c.Side} = {c.Name}");          // PC edge -> each device
+        // Aggregate links per screen. Each device borders RelativeTo (PC by default,
+        // or another device for chaining); we add the forward and return edges.
+        var links = new Dictionary<string, List<(string side, string neighbor)>>();
+        void AddLink(string from, string side, string to)
+        {
+            if (!links.TryGetValue(from, out var list)) { list = new(); links[from] = list; }
+            if (list.Any(x => x.side == side)) return; // one neighbour per edge (chain for more)
+            list.Add((side, to));
+        }
         foreach (var c in clients)
         {
-            conf.AppendLine($"\t{c.Name}:");
-            conf.AppendLine($"\t\t{Opposite(c.Side)} = {pcName}"); // each device's return edge -> PC
+            var rel = string.IsNullOrEmpty(c.RelativeTo) ? pcName : c.RelativeTo;
+            AddLink(rel, c.Side, c.Name);              // neighbour's edge -> device
+            AddLink(c.Name, Opposite(c.Side), rel);    // device's return edge -> neighbour
+        }
+        conf.AppendLine("section: links");
+        foreach (var kv in links)
+        {
+            conf.AppendLine($"\t{kv.Key}:");
+            foreach (var (side, neighbor) in kv.Value)
+                conf.AppendLine($"\t\t{side} = {neighbor}");
         }
         conf.AppendLine("end");
 

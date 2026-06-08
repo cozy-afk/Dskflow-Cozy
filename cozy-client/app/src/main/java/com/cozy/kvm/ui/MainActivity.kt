@@ -35,7 +35,7 @@ class MainActivity : ComponentActivity() {
         setContentView(binding.root)
 
         val prefs = getSharedPreferences("cozy", MODE_PRIVATE)
-        binding.host.setText(prefs.getString("host", ""))
+        binding.host.setText(prefs.getString("host", "192.168.50.33"))
         binding.port.setText(prefs.getInt("port", 24800).toString())
         binding.name.setText(prefs.getString("name", "android-tablet"))
         binding.useTls.isChecked = prefs.getBoolean("tls", true)
