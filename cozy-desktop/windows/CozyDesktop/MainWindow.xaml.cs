@@ -3,10 +3,13 @@ using System.IO;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using CozyDesktop.Services;
 
 namespace CozyDesktop;
@@ -60,15 +63,30 @@ public partial class MainWindow : Window
     {
         var tile = new Tile { Name = name, IsPc = isPc, Col = col, Row = row };
 
+        var monitors = MonitorCount();
         var label = new TextBlock
         {
-            Text = isPc ? "This PC" : name,
+            Text = isPc ? (monitors > 1 ? $"This PC\n{monitors} displays" : "This PC") : name,
             Foreground = Brushes.White,
             TextWrapping = TextWrapping.Wrap,
             TextAlignment = TextAlignment.Center,
             FontWeight = FontWeights.SemiBold,
             FontSize = 13,
         };
+        // Live status dot: PC is always "on"; devices start grey and turn green on connect.
+        var dot = new Ellipse
+        {
+            Width = 10,
+            Height = 10,
+            Margin = new Thickness(0, 6, 6, 0),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Fill = isPc ? (Brush)FindResource("Accent2") : Brushes.Gray,
+            ToolTip = isPc ? "This PC (server)" : "Not connected",
+        };
+        var inner = new Grid();
+        inner.Children.Add(label);
+        inner.Children.Add(dot);
         var border = new Border
         {
             Width = CellW - Gap,
@@ -78,10 +96,11 @@ public partial class MainWindow : Window
             BorderBrush = (Brush)FindResource("Line"),
             BorderThickness = new Thickness(isPc ? 0 : 1),
             Cursor = Cursors.SizeAll,
-            Child = new Grid { Children = { label } },
+            Child = inner,
         };
         tile.Ui = border;
         tile.Label = label;
+        tile.Status = dot;
 
         border.MouseLeftButtonDown += (s, e) => BeginDrag(tile, e);
         border.MouseMove += (s, e) => DragMove(tile, e);
@@ -197,6 +216,7 @@ public partial class MainWindow : Window
         var (devices, links) = BuildGraph();
         if (devices.Count == 0) { OnLog("Add at least one device first."); return; }
         int port = int.TryParse(PortBox.Text, out var p) ? p : 24800;
+        ResetDeviceStatuses(); // grey until each device actually connects
         _controller.StartGraph(devices, links, port, TlsCheck.IsChecked == true);
     }
 
@@ -208,8 +228,9 @@ public partial class MainWindow : Window
             StatusText.Text = running ? "Sharing" : "Not sharing";
             StartButton.Content = running ? "Stop Sharing" : "Start Sharing";
             StatusDetail.Text = running
-                ? "Move your mouse toward a device's tile edge to reach it. Connect each device to this PC."
+                ? "Waiting for devices to connect. A tile turns green when its device connects."
                 : "Press Start to share this PC's keyboard and mouse with all your devices.";
+            if (!running) ResetDeviceStatuses();
         });
     }
 
@@ -236,12 +257,45 @@ public partial class MainWindow : Window
     // ---- logging ----
     private void OnLog(string line)
     {
+        // Live connection status straight from the engine log.
+        var c = Regex.Match(line, "client \"(.+?)\" has connected");
+        if (c.Success) SetClientStatus(c.Groups[1].Value, true);
+        var d = Regex.Match(line, "client \"(.+?)\" has disconnected");
+        if (d.Success) SetClientStatus(d.Groups[1].Value, false);
+
         Dispatcher.Invoke(() =>
         {
             LogBox.AppendText(line + Environment.NewLine);
             LogBox.ScrollToEnd();
         });
     }
+
+    private void SetClientStatus(string screenName, bool connected)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            foreach (var t in _tiles.Where(t => !t.IsPc && t.Status != null))
+            {
+                if (DeskflowController.SanitizeName(t.Name) == screenName)
+                {
+                    t.Status!.Fill = connected ? (Brush)FindResource("Accent2") : Brushes.Gray;
+                    t.Status!.ToolTip = connected ? "Connected" : "Not connected";
+                }
+            }
+        });
+    }
+
+    private void ResetDeviceStatuses()
+    {
+        foreach (var t in _tiles.Where(t => !t.IsPc && t.Status != null))
+        {
+            t.Status!.Fill = Brushes.Gray;
+            t.Status!.ToolTip = "Not connected";
+        }
+    }
+
+    [DllImport("user32.dll")] private static extern int GetSystemMetrics(int nIndex);
+    private static int MonitorCount() => Math.Max(1, GetSystemMetrics(80)); // SM_CMONITORS
 
     private static string GetLanIp()
     {
@@ -279,5 +333,6 @@ public partial class MainWindow : Window
         public int Col, Row;
         public Border Ui = null!;
         public TextBlock Label = null!;
+        public Ellipse? Status;
     }
 }

@@ -75,7 +75,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="Devices &amp; layout" FontWeight="SemiBold" FontSize="15" />
-                                <TextBlock Text="Drag the tiles to arrange your devices. Tiles that touch share a cursor edge. The blue tile is this PC."
+                                <TextBlock Text="These tiles are your planned layout — rename them to your real devices and drag to arrange (touching tiles share a cursor edge). A tile's dot turns green when that device actually connects."
                                            Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <Button Grid.Column="1" Style="{StaticResource GhostButton}" Content="+ Add device"
