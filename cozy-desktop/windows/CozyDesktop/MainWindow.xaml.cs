@@ -13,8 +13,13 @@ namespace CozyDesktop;
 public partial class MainWindow : Window
 {
     private readonly DeskflowController _controller = new();
-    private string _side = "right";
-    private Button[] _sideButtons = Array.Empty<Button>();
+    private readonly List<DeviceRow> _rows = new();
+
+    private static readonly string[] Sides = { "right", "left", "up", "down" };
+    private static string SideLabel(string s) => s switch
+    {
+        "right" => "▶ Right", "left" => "◀ Left", "up" => "▲ Above", "down" => "▼ Below", _ => s
+    };
 
     public MainWindow()
     {
@@ -23,10 +28,12 @@ public partial class MainWindow : Window
         _controller.Log += OnLog;
         _controller.RunningChanged += OnRunningChanged;
 
-        _sideButtons = new[] { SideLeft, SideRight, SideUp, SideDown };
-        SelectSide("right");
-
         IpText.Text = $"This PC: {GetLanIp()}";
+
+        // Seed with the two common devices so multi-device is obvious out of the box.
+        AddDeviceRow("android-tablet", "right");
+        AddDeviceRow("macbook", "left");
+
         Loaded += (_, _) => RefreshEngine();
         Activated += (_, _) => RefreshEngine();
     }
@@ -37,40 +44,96 @@ public partial class MainWindow : Window
         bool ok = _controller.IsDeskflowInstalled();
         EngineCard.Visibility = ok ? Visibility.Collapsed : Visibility.Visible;
         StartButton.IsEnabled = ok;
-        if (!ok)
-        {
-            StatusDetail.Text = "Finish the one-time setup below, then press Start.";
-        }
+        if (!ok) StatusDetail.Text = "Finish the one-time setup below, then press Start.";
     }
 
-    // ---- side picker ----
-    private void Side_Click(object sender, RoutedEventArgs e)
+    // ---- device rows ----
+    private void AddDevice_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button b && b.Tag is string side) SelectSide(side);
+        // Pick the first edge not already taken.
+        var used = _rows.Select(r => r.Side).ToHashSet();
+        var side = Sides.FirstOrDefault(s => !used.Contains(s)) ?? "right";
+        AddDeviceRow(side == "right" && used.Contains("right") ? "right" : "new-device", side);
     }
 
-    private void SelectSide(string side)
+    private void AddDeviceRow(string name, string side)
     {
-        _side = side;
-        foreach (var b in _sideButtons)
+        var row = new DeviceRow { Side = side };
+
+        var grid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var nameBox = new TextBox { Text = name, Margin = new Thickness(0, 0, 8, 0) };
+        Grid.SetColumn(nameBox, 0);
+        row.NameBox = nameBox;
+
+        var sideBtn = new Button
         {
-            bool sel = (string)b.Tag == side;
-            b.Background = sel ? (Brush)FindResource("Accent") : Brushes.Transparent;
-            b.Foreground = sel ? Brushes.White : (Brush)FindResource("Ink");
+            Content = SideLabel(side),
+            Style = (Style)FindResource("GhostButton"),
+            Margin = new Thickness(0, 0, 8, 0),
+            MinWidth = 96,
+        };
+        sideBtn.Click += (_, _) =>
+        {
+            int i = Array.IndexOf(Sides, row.Side);
+            row.Side = Sides[(i + 1) % Sides.Length];
+            sideBtn.Content = SideLabel(row.Side);
+        };
+        Grid.SetColumn(sideBtn, 1);
+
+        var removeBtn = new Button
+        {
+            Content = "✕",
+            Style = (Style)FindResource("GhostButton"),
+            MinWidth = 36,
+        };
+        removeBtn.Click += (_, _) =>
+        {
+            _rows.Remove(row);
+            DeviceListPanel.Children.Remove(grid);
+        };
+        Grid.SetColumn(removeBtn, 2);
+
+        grid.Children.Add(nameBox);
+        grid.Children.Add(sideBtn);
+        grid.Children.Add(removeBtn);
+
+        DeviceListPanel.Children.Add(grid);
+        _rows.Add(row);
+    }
+
+    private List<Device> CollectDevices()
+    {
+        var list = new List<Device>();
+        var usedSides = new HashSet<string>();
+        foreach (var r in _rows)
+        {
+            var name = DeskflowController.SanitizeName(r.NameBox.Text);
+            if (string.IsNullOrWhiteSpace(r.NameBox.Text)) continue;
+            // If two devices share a side, nudge the later one so links stay valid.
+            var side = r.Side;
+            if (!usedSides.Add(side))
+            {
+                side = Sides.FirstOrDefault(s => !usedSides.Contains(s)) ?? side;
+                usedSides.Add(side);
+            }
+            list.Add(new Device(name, side));
         }
+        return list;
     }
 
     // ---- start / stop ----
     private void StartButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_controller.IsRunning)
-        {
-            _controller.Stop();
-            return;
-        }
-        var name = string.IsNullOrWhiteSpace(ClientNameBox.Text) ? "android-tablet" : ClientNameBox.Text.Trim();
+        if (_controller.IsRunning) { _controller.Stop(); return; }
+
+        var devices = CollectDevices();
+        if (devices.Count == 0) { OnLog("Add at least one device first."); return; }
         int port = int.TryParse(PortBox.Text, out var p) ? p : 24800;
-        _controller.Start(name, _side, port, TlsCheck.IsChecked == true);
+        _controller.Start(devices, port, TlsCheck.IsChecked == true);
     }
 
     private void OnRunningChanged(bool running)
@@ -81,19 +144,10 @@ public partial class MainWindow : Window
             StatusText.Text = running ? "Sharing" : "Not sharing";
             StartButton.Content = running ? "Stop Sharing" : "Start Sharing";
             StatusDetail.Text = running
-                ? $"Move your mouse {OppositeWord(_side)} to reach the tablet. Connect the tablet to this PC."
-                : "Press Start to share this PC's keyboard and mouse.";
+                ? "Move your mouse toward each device's edge to reach it. Connect each device to this PC."
+                : "Press Start to share this PC's keyboard and mouse with all your devices.";
         });
     }
-
-    private static string OppositeWord(string side) => side switch
-    {
-        "left" => "to the left",
-        "right" => "to the right",
-        "up" => "upward",
-        "down" => "downward",
-        _ => "across"
-    };
 
     // ---- engine install ----
     private void InstallButton_Click(object sender, RoutedEventArgs e)
@@ -112,10 +166,7 @@ public partial class MainWindow : Window
             Process.Start(psi);
             OnLog("When setup finishes, this window will detect the engine automatically.");
         }
-        catch (Exception ex)
-        {
-            OnLog($"Setup could not start: {ex.Message}");
-        }
+        catch (Exception ex) { OnLog($"Setup could not start: {ex.Message}"); }
     }
 
     // ---- open the visual layout editor ----
@@ -152,8 +203,7 @@ public partial class MainWindow : Window
                 if (ni.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel) continue;
                 foreach (var ua in ni.GetIPProperties().UnicastAddresses)
                 {
-                    if (ua.Address.AddressFamily == AddressFamily.InterNetwork &&
-                        !IPAddress.IsLoopback(ua.Address))
+                    if (ua.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(ua.Address))
                     {
                         var s = ua.Address.ToString();
                         if (!s.StartsWith("169.")) return s;
@@ -169,5 +219,12 @@ public partial class MainWindow : Window
     {
         _controller.Stop();
         base.OnClosed(e);
+    }
+
+    /// <summary>Tracks one device row's controls + selected side.</summary>
+    private sealed class DeviceRow
+    {
+        public TextBox NameBox = null!;
+        public string Side = "right";
     }
 }

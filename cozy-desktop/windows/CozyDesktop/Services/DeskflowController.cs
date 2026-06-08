@@ -4,6 +4,9 @@ using System.Text;
 
 namespace CozyDesktop.Services;
 
+/// <summary>An auxiliary device (Mac, tablet…) and which edge of the PC it sits on.</summary>
+public record Device(string Name, string Side);
+
 /// <summary>
 /// Hides deskflow entirely. Cozy presents its own UI; this class finds the
 /// deskflow server binary, writes its config from a friendly layout, and
@@ -56,10 +59,9 @@ public sealed class DeskflowController
     ///
     /// Verified working against deskflow-core.exe 1.26.0 (server binds :24800).
     /// </summary>
-    public string WriteConfig(string pcName, string clientName, string side, int port, bool tls)
+    public string WriteConfig(string pcName, IReadOnlyList<Device> clients, int port, bool tls)
     {
-        // deskflow link sides are left/right/up/down; opposite gets the return path.
-        string opposite = side switch
+        static string Opposite(string side) => side switch
         {
             "left" => "right",
             "right" => "left",
@@ -72,17 +74,26 @@ public sealed class DeskflowController
         Directory.CreateDirectory(dir);
 
         // --- screens / links config (classic .conf) ---
+        // PC sits in the middle; each device hangs off one of its edges. The cursor
+        // can cross to ALL of them, since deskflow supports many screens at once.
         var conf = new StringBuilder();
         conf.AppendLine("section: screens");
         conf.AppendLine($"\t{pcName}:");
-        conf.AppendLine($"\t{clientName}:");
+        foreach (var c in clients)
+            conf.AppendLine($"\t{c.Name}:");
         conf.AppendLine("end");
+
         conf.AppendLine("section: links");
         conf.AppendLine($"\t{pcName}:");
-        conf.AppendLine($"\t\t{side} = {clientName}");
-        conf.AppendLine($"\t{clientName}:");
-        conf.AppendLine($"\t\t{opposite} = {pcName}");
+        foreach (var c in clients)
+            conf.AppendLine($"\t\t{c.Side} = {c.Name}");          // PC edge -> each device
+        foreach (var c in clients)
+        {
+            conf.AppendLine($"\t{c.Name}:");
+            conf.AppendLine($"\t\t{Opposite(c.Side)} = {pcName}"); // each device's return edge -> PC
+        }
         conf.AppendLine("end");
+
         var confPath = Path.Combine(dir, "cozy-server.conf");
         File.WriteAllText(confPath, conf.ToString());
 
@@ -111,21 +122,25 @@ public sealed class DeskflowController
         return string.IsNullOrWhiteSpace(s) ? "pc" : s;
     }
 
-    /// <summary>Start the deskflow server in the background.</summary>
-    public void Start(string clientName, string side, int port, bool tls)
+    /// <summary>Start the deskflow server in the background, sharing with all devices.</summary>
+    public void Start(IReadOnlyList<Device> clients, int port, bool tls)
     {
         if (IsRunning) return;
 
         var exe = FindServerExe();
         if (exe == null)
         {
-            Log?.Invoke("deskflow engine not found. Click 'Install engine' first.");
+            Log?.Invoke("deskflow engine not found. Click 'Set up Cozy' first.");
+            return;
+        }
+        if (clients.Count == 0)
+        {
+            Log?.Invoke("Add at least one device to share with.");
             return;
         }
 
         var pcName = SanitizeName(Environment.MachineName);
-        var clientScreen = SanitizeName(clientName);
-        var settings = WriteConfig(pcName, clientScreen, side, port, tls);
+        var settings = WriteConfig(pcName, clients, port, tls);
 
         // deskflow 1.26: `server -s <settings> --new-instance`. The settings file
         // carries port/name/tls and points at the screens config. Verified working.
@@ -159,7 +174,8 @@ public sealed class DeskflowController
             p.BeginErrorReadLine();
             _proc = p;
             RunningChanged?.Invoke(true);
-            Log?.Invoke($"Sharing started. Tablet should connect to this PC on port {port} as \"{clientScreen}\".");
+            var names = string.Join(", ", clients.Select(c => $"\"{c.Name}\" ({c.Side})"));
+            Log?.Invoke($"Sharing started on port {port}. Connect these devices: {names}.");
         }
         catch (Exception ex)
         {

@@ -65,31 +65,30 @@
                     </Grid>
                 </Border>
 
-                <!-- Layout visual + settings -->
+                <!-- Devices -->
                 <Border Style="{StaticResource Card}" Margin="0,14,0,0">
                     <StackPanel>
-                        <TextBlock Text="Where is your tablet?" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,12" />
-
-                        <!-- side picker -->
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-                            <Button x:Name="SideLeft"  Style="{StaticResource GhostButton}" Content="◀ Left of PC"  Margin="0,0,8,0" Click="Side_Click" Tag="left" />
-                            <Button x:Name="SideRight" Style="{StaticResource GhostButton}" Content="Right of PC ▶" Margin="0,0,8,0" Click="Side_Click" Tag="right" />
-                            <Button x:Name="SideUp"    Style="{StaticResource GhostButton}" Content="▲ Above"       Margin="0,0,8,0" Click="Side_Click" Tag="up" />
-                            <Button x:Name="SideDown"  Style="{StaticResource GhostButton}" Content="▼ Below"       Click="Side_Click" Tag="down" />
-                        </StackPanel>
-
-                        <Grid>
+                        <Grid Margin="0,0,0,4">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                                <TextBlock Text="Tablet name" Foreground="{StaticResource Muted}" Margin="2,0,0,5" />
-                                <TextBox x:Name="ClientNameBox" Text="android-tablet" />
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Devices sharing with this PC" FontWeight="SemiBold" FontSize="15" />
+                                <TextBlock Text="Add every device — Mac, tablets — and which edge of the PC each sits on. Your cursor crosses to all of them."
+                                           Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
-                            <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                                <TextBlock Text="Port" Foreground="{StaticResource Muted}" Margin="2,0,0,5" />
-                                <TextBox x:Name="PortBox" Text="24800" />
+                            <Button Grid.Column="1" Style="{StaticResource GhostButton}" Content="+ Add device"
+                                    VerticalAlignment="Top" Click="AddDevice_Click" />
+                        </Grid>
+
+                        <!-- rows are added here in code -->
+                        <StackPanel x:Name="DeviceListPanel" Margin="0,12,0,0" />
+
+                        <Grid Margin="0,8,0,0" HorizontalAlignment="Left">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Port" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <TextBox x:Name="PortBox" Text="24800" Width="90" />
                             </StackPanel>
                         </Grid>
 
