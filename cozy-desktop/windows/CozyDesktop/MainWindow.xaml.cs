@@ -5,6 +5,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using CozyDesktop.Services;
 
@@ -13,13 +14,13 @@ namespace CozyDesktop;
 public partial class MainWindow : Window
 {
     private readonly DeskflowController _controller = new();
-    private readonly List<DeviceRow> _rows = new();
 
-    private static readonly string[] Sides = { "right", "left", "up", "down" };
-    private static string SideLabel(string s) => s switch
-    {
-        "right" => "▶ Right", "left" => "◀ Left", "up" => "▲ Above", "down" => "▼ Below", _ => s
-    };
+    // ---- visual layout grid ----
+    private const double CellW = 116, CellH = 92, Pad = 12, Gap = 10;
+    private readonly List<Tile> _tiles = new();
+    private Tile? _selected;
+    private Tile? _dragging;
+    private Point _dragOffset;
 
     public MainWindow()
     {
@@ -30,12 +31,19 @@ public partial class MainWindow : Window
 
         IpText.Text = $"This PC: {GetLanIp()}";
 
-        // Seed with the two common devices so multi-device is obvious out of the box.
-        AddDeviceRow("android-tablet", "right");
-        AddDeviceRow("macbook", "left");
+        SelNameBox.TextChanged += (_, _) =>
+        {
+            if (_selected is { IsPc: false } t) { t.Name = SelNameBox.Text; t.Label.Text = t.Name; }
+        };
+
+        // Seed: PC in the middle, tablet to its right, Mac to its left (drag to taste).
+        CreateTile("This PC", isPc: true, col: 2, row: 1);
+        CreateTile("android-tablet", isPc: false, col: 3, row: 1);
+        CreateTile("macbook", isPc: false, col: 1, row: 1);
 
         Loaded += (_, _) => RefreshEngine();
         Activated += (_, _) => RefreshEngine();
+        LayoutCanvas.MouseLeftButtonDown += (_, _) => Select(null);
     }
 
     // ---- engine presence ----
@@ -47,117 +55,149 @@ public partial class MainWindow : Window
         if (!ok) StatusDetail.Text = "Finish the one-time setup below, then press Start.";
     }
 
-    // ---- device rows ----
+    // ---- tiles ----
+    private void CreateTile(string name, bool isPc, int col, int row)
+    {
+        var tile = new Tile { Name = name, IsPc = isPc, Col = col, Row = row };
+
+        var label = new TextBlock
+        {
+            Text = isPc ? "This PC" : name,
+            Foreground = Brushes.White,
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center,
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 13,
+        };
+        var border = new Border
+        {
+            Width = CellW - Gap,
+            Height = CellH - Gap,
+            CornerRadius = new CornerRadius(8),
+            Background = isPc ? (Brush)FindResource("Accent") : (Brush)FindResource("Panel2"),
+            BorderBrush = (Brush)FindResource("Line"),
+            BorderThickness = new Thickness(isPc ? 0 : 1),
+            Cursor = Cursors.SizeAll,
+            Child = new Grid { Children = { label } },
+        };
+        tile.Ui = border;
+        tile.Label = label;
+
+        border.MouseLeftButtonDown += (s, e) => BeginDrag(tile, e);
+        border.MouseMove += (s, e) => DragMove(tile, e);
+        border.MouseLeftButtonUp += (s, e) => EndDrag(tile);
+
+        LayoutCanvas.Children.Add(border);
+        _tiles.Add(tile);
+        PositionTile(tile);
+    }
+
+    private void PositionTile(Tile t)
+    {
+        Canvas.SetLeft(t.Ui, t.Col * CellW + Pad);
+        Canvas.SetTop(t.Ui, t.Row * CellH + Pad);
+    }
+
+    private void BeginDrag(Tile t, MouseButtonEventArgs e)
+    {
+        Select(t);
+        _dragging = t;
+        var p = e.GetPosition(LayoutCanvas);
+        _dragOffset = new Point(p.X - Canvas.GetLeft(t.Ui), p.Y - Canvas.GetTop(t.Ui));
+        t.Ui.CaptureMouse();
+        Panel.SetZIndex(t.Ui, 10);
+        e.Handled = true;
+    }
+
+    private void DragMove(Tile t, MouseEventArgs e)
+    {
+        if (_dragging != t) return;
+        var p = e.GetPosition(LayoutCanvas);
+        Canvas.SetLeft(t.Ui, p.X - _dragOffset.X);
+        Canvas.SetTop(t.Ui, p.Y - _dragOffset.Y);
+    }
+
+    private void EndDrag(Tile t)
+    {
+        if (_dragging != t) return;
+        _dragging = null;
+        t.Ui.ReleaseMouseCapture();
+        Panel.SetZIndex(t.Ui, 0);
+
+        // Snap to nearest cell, clamped to the canvas, reverting if occupied.
+        int maxCol = Math.Max(0, (int)((LayoutCanvas.ActualWidth - Pad) / CellW) - 1);
+        int maxRow = Math.Max(0, (int)((LayoutCanvas.ActualHeight - Pad) / CellH) - 1);
+        int col = Math.Clamp((int)Math.Round((Canvas.GetLeft(t.Ui) - Pad) / CellW), 0, maxCol);
+        int row = Math.Clamp((int)Math.Round((Canvas.GetTop(t.Ui) - Pad) / CellH), 0, maxRow);
+
+        bool occupied = _tiles.Any(o => o != t && o.Col == col && o.Row == row);
+        if (!occupied) { t.Col = col; t.Row = row; }
+        PositionTile(t); // either commit or snap back
+    }
+
+    private void Select(Tile? t)
+    {
+        _selected = t;
+        foreach (var x in _tiles)
+            x.Ui.BorderThickness = new Thickness(x == t ? 2 : (x.IsPc ? 0 : 1));
+        foreach (var x in _tiles)
+            x.Ui.BorderBrush = x == t ? (Brush)FindResource("Accent2") : (Brush)FindResource("Line");
+
+        if (t is { IsPc: false })
+        {
+            SelectionBar.Visibility = Visibility.Visible;
+            SelNameBox.Text = t.Name;
+        }
+        else SelectionBar.Visibility = Visibility.Collapsed;
+    }
+
     private void AddDevice_Click(object sender, RoutedEventArgs e)
     {
-        // Prefer a free edge on the PC; if all four are taken, the user can chain it
-        // onto another device with the "of:" button.
-        var usedPcSides = _rows.Where(r => r.RelativeToLabel == "This PC").Select(r => r.Side).ToHashSet();
-        var side = Sides.FirstOrDefault(s => !usedPcSides.Contains(s)) ?? "right";
-        AddDeviceRow("new-device", side, "This PC");
+        // first free cell, scanning rows then cols
+        for (int row = 0; row < 6; row++)
+            for (int col = 0; col < 8; col++)
+                if (!_tiles.Any(t => t.Col == col && t.Row == row))
+                {
+                    CreateTile("new-device", false, col, row);
+                    Select(_tiles[^1]);
+                    return;
+                }
     }
 
-    private void AddDeviceRow(string name, string side, string relativeTo = "This PC")
+    private void RemoveSelected_Click(object sender, RoutedEventArgs e)
     {
-        var row = new DeviceRow { Side = side, RelativeToLabel = relativeTo };
-
-        var grid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var nameBox = new TextBox { Text = name, Margin = new Thickness(0, 0, 8, 0) };
-        Grid.SetColumn(nameBox, 0);
-        row.NameBox = nameBox;
-
-        var sideBtn = new Button
+        if (_selected is { IsPc: false } t)
         {
-            Content = SideLabel(side),
-            Style = (Style)FindResource("GhostButton"),
-            Margin = new Thickness(0, 0, 8, 0),
-            MinWidth = 96,
-        };
-        sideBtn.Click += (_, _) =>
-        {
-            int i = Array.IndexOf(Sides, row.Side);
-            row.Side = Sides[(i + 1) % Sides.Length];
-            sideBtn.Content = SideLabel(row.Side);
-        };
-        Grid.SetColumn(sideBtn, 1);
-
-        // "attaches to" cycle: This PC -> each OTHER device -> back. Enables chaining.
-        var ofBtn = new Button
-        {
-            Content = "of: " + row.RelativeToLabel,
-            Style = (Style)FindResource("GhostButton"),
-            Margin = new Thickness(0, 0, 8, 0),
-            MinWidth = 120,
-        };
-        ofBtn.Click += (_, _) =>
-        {
-            var targets = new List<string> { "This PC" };
-            targets.AddRange(_rows.Where(r => r != row)
-                .Select(r => DeskflowController.SanitizeName(r.NameBox.Text)));
-            int idx = targets.IndexOf(row.RelativeToLabel);
-            if (idx < 0) idx = 0;
-            idx = (idx + 1) % targets.Count;
-            row.RelativeToLabel = targets[idx];
-            ofBtn.Content = "of: " + targets[idx];
-        };
-        Grid.SetColumn(ofBtn, 2);
-
-        var removeBtn = new Button
-        {
-            Content = "✕",
-            Style = (Style)FindResource("GhostButton"),
-            MinWidth = 36,
-        };
-        removeBtn.Click += (_, _) =>
-        {
-            _rows.Remove(row);
-            DeviceListPanel.Children.Remove(grid);
-        };
-        Grid.SetColumn(removeBtn, 3);
-
-        grid.Children.Add(nameBox);
-        grid.Children.Add(sideBtn);
-        grid.Children.Add(ofBtn);
-        grid.Children.Add(removeBtn);
-
-        DeviceListPanel.Children.Add(grid);
-        _rows.Add(row);
-    }
-
-    private List<Device> CollectDevices()
-    {
-        // Names of all non-empty devices, used to validate "attaches to" targets.
-        var valid = _rows.Where(r => !string.IsNullOrWhiteSpace(r.NameBox.Text))
-                         .Select(r => DeskflowController.SanitizeName(r.NameBox.Text))
-                         .ToHashSet();
-
-        var list = new List<Device>();
-        foreach (var r in _rows)
-        {
-            if (string.IsNullOrWhiteSpace(r.NameBox.Text)) continue;
-            var name = DeskflowController.SanitizeName(r.NameBox.Text);
-            // "This PC" (or a stale target) -> empty = attach to PC.
-            var rel = r.RelativeToLabel == "This PC" ? "" : DeskflowController.SanitizeName(r.RelativeToLabel);
-            if (rel == name || !valid.Contains(rel)) rel = "";   // no self-attach / stale -> PC
-            list.Add(new Device(name, r.Side, rel));
+            LayoutCanvas.Children.Remove(t.Ui);
+            _tiles.Remove(t);
+            Select(null);
         }
-        return list;
+    }
+
+    // ---- build link graph from tile adjacency ----
+    private (List<string> devices, List<(string from, string side, string to)> links) BuildGraph()
+    {
+        string SN(Tile t) => t.IsPc ? _controller.PcName : DeskflowController.SanitizeName(t.Name);
+        var links = new List<(string, string, string)>();
+        foreach (var a in _tiles)
+            foreach (var b in _tiles)
+            {
+                if (a == b) continue;
+                if (a.Row == b.Row && b.Col == a.Col + 1) { links.Add((SN(a), "right", SN(b))); links.Add((SN(b), "left", SN(a))); }
+                if (a.Col == b.Col && b.Row == a.Row + 1) { links.Add((SN(a), "down", SN(b))); links.Add((SN(b), "up", SN(a))); }
+            }
+        var devices = _tiles.Where(t => !t.IsPc).Select(SN).Distinct().ToList();
+        return (devices, links);
     }
 
     // ---- start / stop ----
     private void StartButton_Click(object sender, RoutedEventArgs e)
     {
         if (_controller.IsRunning) { _controller.Stop(); return; }
-
-        var devices = CollectDevices();
+        var (devices, links) = BuildGraph();
         if (devices.Count == 0) { OnLog("Add at least one device first."); return; }
         int port = int.TryParse(PortBox.Text, out var p) ? p : 24800;
-        _controller.Start(devices, port, TlsCheck.IsChecked == true);
+        _controller.StartGraph(devices, links, port, TlsCheck.IsChecked == true);
     }
 
     private void OnRunningChanged(bool running)
@@ -168,7 +208,7 @@ public partial class MainWindow : Window
             StatusText.Text = running ? "Sharing" : "Not sharing";
             StartButton.Content = running ? "Stop Sharing" : "Start Sharing";
             StatusDetail.Text = running
-                ? "Move your mouse toward each device's edge to reach it. Connect each device to this PC."
+                ? "Move your mouse toward a device's tile edge to reach it. Connect each device to this PC."
                 : "Press Start to share this PC's keyboard and mouse with all your devices.";
         });
     }
@@ -191,20 +231,6 @@ public partial class MainWindow : Window
             OnLog("When setup finishes, this window will detect the engine automatically.");
         }
         catch (Exception ex) { OnLog($"Setup could not start: {ex.Message}"); }
-    }
-
-    // ---- open the visual layout editor ----
-    private void OpenEditor_Click(object sender, RoutedEventArgs e)
-    {
-        var candidates = new[]
-        {
-            Path.Combine(AppContext.BaseDirectory, "cozy-layout-editor", "index.html"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "cozy-layout-editor", "index.html")),
-        };
-        var local = candidates.FirstOrDefault(File.Exists);
-        var target = local ?? "https://github.com/cozy-afk/Dskflow-Cozy/blob/master/cozy-layout-editor/index.html";
-        try { Process.Start(new ProcessStartInfo(target) { UseShellExecute = true }); }
-        catch (Exception ex) { OnLog($"Could not open editor: {ex.Message}"); }
     }
 
     // ---- logging ----
@@ -245,11 +271,13 @@ public partial class MainWindow : Window
         base.OnClosed(e);
     }
 
-    /// <summary>Tracks one device row's controls + selected side.</summary>
-    private sealed class DeviceRow
+    /// <summary>A draggable device tile on the layout canvas.</summary>
+    private sealed class Tile
     {
-        public TextBox NameBox = null!;
-        public string Side = "right";
-        public string RelativeToLabel = "This PC";
+        public string Name = "";
+        public bool IsPc;
+        public int Col, Row;
+        public Border Ui = null!;
+        public TextBlock Label = null!;
     }
 }

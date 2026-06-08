@@ -140,6 +140,108 @@ public sealed class DeskflowController
         return string.IsNullOrWhiteSpace(s) ? "pc" : s;
     }
 
+    /// <summary>This PC's screen name in the deskflow config.</summary>
+    public string PcName => SanitizeName(Environment.MachineName);
+
+    /// <summary>
+    /// Write config from an explicit link graph (used by the visual layout canvas).
+    /// <paramref name="deviceNames"/> excludes the PC; <paramref name="links"/> are
+    /// (fromScreen, side, toScreen) edges using the real screen names (PcName for the PC).
+    /// </summary>
+    public string WriteConfigGraph(IReadOnlyList<string> deviceNames,
+                                   IReadOnlyList<(string from, string side, string to)> links,
+                                   int port, bool tls)
+    {
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Cozy");
+        Directory.CreateDirectory(dir);
+
+        var conf = new StringBuilder();
+        conf.AppendLine("section: screens");
+        conf.AppendLine($"\t{PcName}:");
+        foreach (var n in deviceNames)
+            conf.AppendLine($"\t{n}:");
+        conf.AppendLine("end");
+
+        // group links per screen, one neighbour per edge
+        var byScreen = new Dictionary<string, List<(string side, string to)>>();
+        foreach (var (from, side, to) in links)
+        {
+            if (!byScreen.TryGetValue(from, out var l)) { l = new(); byScreen[from] = l; }
+            if (l.Any(x => x.side == side)) continue;
+            l.Add((side, to));
+        }
+        conf.AppendLine("section: links");
+        foreach (var kv in byScreen)
+        {
+            conf.AppendLine($"\t{kv.Key}:");
+            foreach (var (side, to) in kv.Value)
+                conf.AppendLine($"\t\t{side} = {to}");
+        }
+        conf.AppendLine("end");
+
+        var confPath = Path.Combine(dir, "cozy-server.conf");
+        File.WriteAllText(confPath, conf.ToString());
+
+        var ini = new StringBuilder();
+        ini.AppendLine("[core]");
+        ini.AppendLine("coreMode=server");
+        ini.AppendLine($"port={port}");
+        ini.AppendLine($"computerName={PcName}");
+        ini.AppendLine("[security]");
+        ini.AppendLine($"tlsEnabled={(tls ? "true" : "false")}");
+        ini.AppendLine("[server]");
+        ini.AppendLine("externalConfig=true");
+        ini.AppendLine($"externalConfigFile={confPath.Replace('\\', '/')}");
+        var settingsPath = Path.Combine(dir, "cozy-settings.conf");
+        File.WriteAllText(settingsPath, ini.ToString());
+        return settingsPath;
+    }
+
+    /// <summary>Start the server from a visual-layout link graph.</summary>
+    public void StartGraph(IReadOnlyList<string> deviceNames,
+                           IReadOnlyList<(string from, string side, string to)> links,
+                           int port, bool tls)
+    {
+        if (IsRunning) return;
+        if (FindServerExe() == null) { Log?.Invoke("deskflow engine not found. Click 'Set up Cozy' first."); return; }
+        if (deviceNames.Count == 0) { Log?.Invoke("Add at least one device to share with."); return; }
+
+        var settings = WriteConfigGraph(deviceNames, links, port, tls);
+        LaunchEngine(settings, $"Sharing on port {port} with: {string.Join(", ", deviceNames)}.");
+    }
+
+    /// <summary>Launch deskflow-core as a server against the given settings file.</summary>
+    private void LaunchEngine(string settingsPath, string summary)
+    {
+        var exe = FindServerExe()!;
+        var args = $"server -s \"{settingsPath}\" --new-instance";
+        Log?.Invoke($"Launching engine: {Path.GetFileName(exe)} {args}");
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = exe,
+            Arguments = args,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+        };
+        var p = new Process { StartInfo = psi, EnableRaisingEvents = true };
+        p.OutputDataReceived += (_, e) => { if (e.Data != null) Log?.Invoke(e.Data); };
+        p.ErrorDataReceived += (_, e) => { if (e.Data != null) Log?.Invoke(e.Data); };
+        p.Exited += (_, _) => { Log?.Invoke("Engine stopped."); RunningChanged?.Invoke(false); };
+        try
+        {
+            p.Start();
+            p.BeginOutputReadLine();
+            p.BeginErrorReadLine();
+            _proc = p;
+            RunningChanged?.Invoke(true);
+            Log?.Invoke(summary);
+        }
+        catch (Exception ex) { Log?.Invoke($"Failed to start engine: {ex.Message}"); }
+    }
+
     /// <summary>Start the deskflow server in the background, sharing with all devices.</summary>
     public void Start(IReadOnlyList<Device> clients, int port, bool tls)
     {

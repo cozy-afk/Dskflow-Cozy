@@ -65,7 +65,7 @@
                     </Grid>
                 </Border>
 
-                <!-- Devices -->
+                <!-- Devices & layout -->
                 <Border Style="{StaticResource Card}" Margin="0,14,0,0">
                     <StackPanel>
                         <Grid Margin="0,0,0,4">
@@ -74,18 +74,35 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
-                                <TextBlock Text="Devices sharing with this PC" FontWeight="SemiBold" FontSize="15" />
-                                <TextBlock Text="Add every device — Mac, tablets — and which edge of the PC each sits on. Your cursor crosses to all of them."
+                                <TextBlock Text="Devices &amp; layout" FontWeight="SemiBold" FontSize="15" />
+                                <TextBlock Text="Drag the tiles to arrange your devices. Tiles that touch share a cursor edge. The blue tile is this PC."
                                            Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                             <Button Grid.Column="1" Style="{StaticResource GhostButton}" Content="+ Add device"
                                     VerticalAlignment="Top" Click="AddDevice_Click" />
                         </Grid>
 
-                        <!-- rows are added here in code -->
-                        <StackPanel x:Name="DeviceListPanel" Margin="0,12,0,0" />
+                        <!-- drag-to-arrange canvas (Windows Display-settings style) -->
+                        <Border Margin="0,12,0,0" Background="#0B0E1A" BorderBrush="{StaticResource Line}"
+                                BorderThickness="1" CornerRadius="10" Height="300" ClipToBounds="True">
+                            <Canvas x:Name="LayoutCanvas" Background="Transparent" />
+                        </Border>
 
-                        <Grid Margin="0,8,0,0" HorizontalAlignment="Left">
+                        <!-- selected-device editor -->
+                        <Grid x:Name="SelectionBar" Margin="0,12,0,0" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Name" Foreground="{StaticResource Muted}"
+                                       VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBox x:Name="SelNameBox" Grid.Column="1" />
+                            <Button x:Name="SelRemove" Grid.Column="2" Style="{StaticResource GhostButton}"
+                                    Content="Remove" Margin="8,0,0,0" Click="RemoveSelected_Click" />
+                        </Grid>
+
+                        <Grid Margin="0,12,0,0" HorizontalAlignment="Left">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="Port" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0" />
                                 <TextBox x:Name="PortBox" Text="24800" Width="90" />
@@ -95,12 +112,7 @@
                         <CheckBox x:Name="TlsCheck" Content="Use encryption (TLS)" Foreground="{StaticResource Ink}"
                                   Margin="2,14,0,0" IsChecked="True" />
 
-                        <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                            <Button Style="{StaticResource GhostButton}" Content="Open visual layout editor"
-                                    Click="OpenEditor_Click" Margin="0,0,8,0" />
-                            <TextBlock x:Name="IpText" Text="" Foreground="{StaticResource Muted}"
-                                       VerticalAlignment="Center" Margin="6,0,0,0" />
-                        </StackPanel>
+                        <TextBlock x:Name="IpText" Text="" Foreground="{StaticResource Muted}" Margin="2,12,0,0" />
                     </StackPanel>
                 </Border>
 
