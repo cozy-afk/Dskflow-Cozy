@@ -17,6 +17,14 @@ cozy-client/local.properties
 # Kotlin compiler scratch
 cozy-client/.kotlin/
 
+# .NET build outputs (desktop app)
+cozy-desktop/**/bin/
+cozy-desktop/**/obj/
+
+# Large published binaries (shipped via GitHub Releases, not committed)
+dist/*.exe
+
+
 # Gradle wrapper jar is fine to keep; IDE noise is not
 .idea/
 *.iml
