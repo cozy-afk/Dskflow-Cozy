@@ -1,0 +1,24 @@
+# Build toolchain (huge — JDK/SDK/Gradle live here locally, not in git)
+.tools/
+
+# Upstream deskflow clone (reference/base; clone separately, don't vendor)
+deskflow/
+
+# Android/Gradle build outputs
+cozy-client/.gradle/
+cozy-client/build/
+cozy-client/app/build/
+cozy-client/**/build/
+.gradle/
+
+# Machine-specific SDK path
+cozy-client/local.properties
+
+# Kotlin compiler scratch
+cozy-client/.kotlin/
+
+# Gradle wrapper jar is fine to keep; IDE noise is not
+.idea/
+*.iml
+.DS_Store
+Thumbs.db

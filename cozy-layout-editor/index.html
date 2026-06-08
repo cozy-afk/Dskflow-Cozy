@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cozy — Device Layout Editor</title>
+<style>
+  :root { --bg:#0f1320; --panel:#181d2e; --line:#2a3148; --ink:#e8ecf6; --muted:#9aa6c4; --accent:#5b8cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:18px; margin:0; }
+  header .tag { color:var(--muted); font-size:13px; }
+  .wrap { display:grid; grid-template-columns: 280px 1fr 360px; gap:0; height: calc(100vh - 52px); }
+  .col { padding:16px; overflow:auto; }
+  .col.left { border-right:1px solid var(--line); }
+  .col.right { border-left:1px solid var(--line); background:var(--panel); }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:18px 0 8px; }
+  .device { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:10px; }
+  .device .row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .device input[type=text]{ flex:1; background:#0d1120; border:1px solid var(--line); color:var(--ink); border-radius:6px; padding:6px 8px; }
+  .swatch { width:14px; height:14px; border-radius:4px; flex:none; }
+  .device label { color:var(--muted); font-size:12px; }
+  .device .displays { display:flex; align-items:center; gap:6px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:7px; padding:8px 12px; cursor:pointer; font-weight:600; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--ink); font-weight:500; }
+  button.sm { padding:3px 8px; font-size:12px; }
+  /* grid canvas */
+  .stage { position:relative; background:
+      linear-gradient(var(--line) 1px, transparent 1px) 0 0 / var(--cell) var(--cell),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0 / var(--cell) var(--cell);
+      border:1px solid var(--line); border-radius:10px; height: 100%; min-height:420px; overflow:hidden; }
+  .tile { position:absolute; border-radius:8px; color:#fff; padding:6px 8px; cursor:grab; user-select:none;
+      box-shadow:0 4px 12px rgba(0,0,0,.35); border:2px solid rgba(255,255,255,.25); transition: box-shadow .1s; }
+  .tile:active { cursor:grabbing; box-shadow:0 8px 22px rgba(0,0,0,.5); }
+  .tile .name { font-weight:700; font-size:13px; }
+  .tile .meta { font-size:11px; opacity:.85; }
+  .tile .primary { font-size:10px; background:rgba(0,0,0,.3); padding:1px 5px; border-radius:4px; margin-left:6px; }
+  pre { background:#0b0e1a; border:1px solid var(--line); border-radius:8px; padding:12px; font-size:12px; white-space:pre-wrap; word-break:break-word; max-height:40vh; overflow:auto; }
+  .hint { color:var(--muted); font-size:12px; }
+  .pill { display:inline-block; background:#0d1120; border:1px solid var(--line); border-radius:999px; padding:2px 8px; font-size:11px; color:var(--muted); }
+  .warn { color:#ffcf6b; font-size:12px; border-left:3px solid #ffcf6b; padding-left:8px; margin:8px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cozy</h1><span class="tag">Device Layout Editor — drag screens to arrange how your cursor crosses between them</span>
+</header>
+<div class="wrap">
+  <!-- LEFT: devices -->
+  <div class="col left">
+    <h2>Devices</h2>
+    <div id="deviceList"></div>
+    <button class="ghost" id="addDevice">+ Add device</button>
+    <button class="ghost" id="resetAll" style="margin-top:6px;">↺ Reset layout</button>
+    <h2>Grid</h2>
+    <label class="hint">Cell size
+      <input id="cellSize" type="range" min="80" max="180" value="120" style="width:100%">
+    </label>
+    <p class="hint">Each tile is one physical display. Devices with several displays get one tile per display, sharing a colour. Drop two tiles edge-to-edge and the cursor will cross between them there.</p>
+  </div>
+
+  <!-- CENTER: grid stage -->
+  <div class="col" style="display:flex; flex-direction:column;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <h2 style="margin:0;">Arrangement</h2>
+      <span class="hint">Snaps to grid · overlapping edges define adjacency</span>
+    </div>
+    <div class="stage" id="stage"></div>
+  </div>
+
+  <!-- RIGHT: output -->
+  <div class="col right">
+    <h2>Server config (deskflow)</h2>
+    <p class="hint">Each <em>device</em> is one deskflow screen. Multi-display devices are reduced to their primary display's edges for deskflow, since the stock protocol models one screen per machine.</p>
+    <button class="sm" onclick="copyOut('deskflow')">Copy .conf</button>
+    <button class="sm ghost" onclick="download('cozy.conf', document.getElementById('outDeskflow').textContent)">Download</button>
+    <pre id="outDeskflow"></pre>
+
+    <h2>Cozy layout (rich)</h2>
+    <p class="hint">Full per-display layout — this is what a Cozy-enhanced server would use to route the cursor across <em>individual</em> displays, beyond deskflow's one-screen-per-device limit.</p>
+    <button class="sm" onclick="copyOut('cozy')">Copy JSON</button>
+    <button class="sm ghost" onclick="download('cozy-layout.json', document.getElementById('outCozy').textContent)">Download</button>
+    <pre id="outCozy"></pre>
+  </div>
+</div>
+
+<script>
+// ---------- model ----------
+const COLORS = ["#5b8cff","#ff6b9d","#3dd6a0","#ffb454","#b78cff","#48c6ef","#ff7a59"];
+let cell = 120;
+let devices = [];   // {id, name, color, displays:[{id, w, h, primary, cx, cy}]}  cx,cy = grid cell coords
+let nextId = 1;
+
+function addDevice(name, displays) {
+  const color = COLORS[devices.length % COLORS.length];
+  const d = { id: nextId++, name: name || ("Device " + nextId), color, displays: [] };
+  const n = displays || 1;
+  for (let i=0;i<n;i++) d.displays.push(mkDisplay(d, i));
+  devices.push(d);
+  layoutNewDevice(d);
+  render();
+}
+function mkDisplay(device, idx) {
+  return { id: nextId++, w: 1920, h: 1080, primary: idx===0, cx: 0, cy: 0 };
+}
+
+// place a new device's displays in the first free row, left to right
+function layoutNewDevice(d) {
+  let row = 0;
+  outer: while (true) {
+    let col = 0;
+    for (const disp of d.displays) {
+      while (occupied(col, row)) col++;
+      disp.cx = col; disp.cy = row; col++;
+    }
+    break outer;
+  }
+}
+function occupied(cx, cy, exceptId) {
+  return devices.some(dev => dev.displays.some(dp => dp.id!==exceptId && dp.cx===cx && dp.cy===cy));
+}
+
+// ---------- persistence ----------
+const STORE_KEY = "cozy.layout.v1";
+function save(){ localStorage.setItem(STORE_KEY, JSON.stringify({nextId, devices})); }
+function load(){
+  try {
+    const raw = localStorage.getItem(STORE_KEY); if(!raw) return false;
+    const data = JSON.parse(raw);
+    devices = data.devices || []; nextId = data.nextId || 1; return devices.length>0;
+  } catch(e){ return false; }
+}
+function download(filename, text){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type:'text/plain'}));
+  a.download = filename; a.click(); URL.revokeObjectURL(a.href);
+}
+
+// ---------- rendering ----------
+function render() { renderDevices(); renderStage(); renderOutput(); save(); }
+
+function renderDevices() {
+  const root = document.getElementById('deviceList'); root.innerHTML='';
+  devices.forEach(dev => {
+    const el = document.createElement('div'); el.className='device';
+    el.innerHTML = `
+      <div class="row">
+        <span class="swatch" style="background:${dev.color}"></span>
+        <input type="text" value="${dev.name}" data-id="${dev.id}" class="devName">
+        <button class="ghost sm" data-del="${dev.id}">✕</button>
+      </div>
+      <div class="row displays">
+        <label>Displays</label>
+        <button class="ghost sm" data-minus="${dev.id}">−</button>
+        <span class="pill">${dev.displays.length}</span>
+        <button class="ghost sm" data-plus="${dev.id}">+</button>
+      </div>
+      ${dev.displays.map((dp,i)=>`
+        <div class="row" style="gap:4px;">
+          <label style="width:58px;">Disp ${i+1}</label>
+          <input type="number" class="resW" data-disp="${dp.id}" value="${dp.w}" style="width:64px;background:#0d1120;border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px;">
+          <span class="hint">×</span>
+          <input type="number" class="resH" data-disp="${dp.id}" value="${dp.h}" style="width:64px;background:#0d1120;border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px;">
+          <button class="ghost sm" data-primary="${dp.id}" title="Make primary">${dp.primary?'★':'☆'}</button>
+        </div>`).join('')}`;
+    root.appendChild(el);
+  });
+  const findDisp = id => { for(const dev of devices){ const d=dev.displays.find(x=>x.id==id); if(d) return d; } return null; };
+  root.querySelectorAll('.resW').forEach(i => i.onchange = e => { findDisp(e.target.dataset.disp).w = +e.target.value||1920; render(); });
+  root.querySelectorAll('.resH').forEach(i => i.onchange = e => { findDisp(e.target.dataset.disp).h = +e.target.value||1080; render(); });
+  root.querySelectorAll('[data-primary]').forEach(b => b.onclick = e => {
+    const target = findDisp(e.target.dataset.primary);
+    const dev = devices.find(d=>d.displays.includes(target));
+    dev.displays.forEach(d=>d.primary = (d===target)); render();
+  });
+  root.querySelectorAll('.devName').forEach(i => i.oninput = e => {
+    const dev = devices.find(d=>d.id==e.target.dataset.id); dev.name = e.target.value; renderStage(); renderOutput();
+  });
+  root.querySelectorAll('[data-del]').forEach(b => b.onclick = e => {
+    devices = devices.filter(d=>d.id!=e.target.dataset.del); render();
+  });
+  root.querySelectorAll('[data-plus]').forEach(b => b.onclick = e => {
+    const dev = devices.find(d=>d.id==e.target.dataset.plus);
+    const disp = mkDisplay(dev, dev.displays.length); dev.displays.push(disp);
+    // place next to last display
+    let col = Math.max(...dev.displays.map(d=>d.cx)); const row = dev.displays[0].cy;
+    col++; while (occupied(col,row)) col++; disp.cx=col; disp.cy=row;
+    render();
+  });
+  root.querySelectorAll('[data-minus]').forEach(b => b.onclick = e => {
+    const dev = devices.find(d=>d.id==e.target.dataset.minus);
+    if (dev.displays.length>1){ dev.displays.pop(); render(); }
+  });
+}
+
+function renderStage() {
+  const stage = document.getElementById('stage');
+  stage.style.setProperty('--cell', cell+'px');
+  stage.innerHTML='';
+  devices.forEach(dev => dev.displays.forEach((dp, idx) => {
+    const t = document.createElement('div'); t.className='tile';
+    t.style.background = dev.color;
+    t.style.left = (dp.cx*cell+4)+'px'; t.style.top = (dp.cy*cell+4)+'px';
+    t.style.width = (cell-8)+'px'; t.style.height=(cell-8)+'px';
+    t.innerHTML = `<div class="name">${dev.name}${dp.primary?'<span class="primary">primary</span>':''}</div>
+                   <div class="meta">Display ${idx+1} · ${dp.w}×${dp.h}</div>`;
+    enableDrag(t, dp);
+    stage.appendChild(t);
+  }));
+}
+
+// pointer drag with snap-to-cell
+function enableDrag(el, dp) {
+  let startX, startY, origCx, origCy;
+  el.onpointerdown = e => {
+    el.setPointerCapture(e.pointerId);
+    startX=e.clientX; startY=e.clientY; origCx=dp.cx; origCy=dp.cy;
+    el.onpointermove = move; el.onpointerup = up;
+  };
+  function move(e){
+    const dx = Math.round((e.clientX-startX)/cell);
+    const dy = Math.round((e.clientY-startY)/cell);
+    const nx = Math.max(0, origCx+dx), ny = Math.max(0, origCy+dy);
+    if ((nx!==dp.cx || ny!==dp.cy) && !occupied(nx,ny,dp.id)) { dp.cx=nx; dp.cy=ny; renderStage(); renderOutput(); save(); }
+  }
+  function up(e){ el.onpointermove=null; el.onpointerup=null; }
+}
+
+// ---------- adjacency + output ----------
+// neighbours: for each display, look at the 4 orthogonally adjacent cells.
+function neighbours(dp){
+  const at = (x,y)=>{ for(const dev of devices) for(const d of dev.displays) if(d.cx===x&&d.cy===y) return {dev,d}; return null; };
+  return {
+    left:  at(dp.cx-1, dp.cy), right: at(dp.cx+1, dp.cy),
+    up:    at(dp.cx,   dp.cy-1), down: at(dp.cx,   dp.cy+1),
+  };
+}
+function deviceOf(dp){ return devices.find(dev=>dev.displays.includes(dp)); }
+function primaryOf(dev){ return dev.displays.find(d=>d.primary) || dev.displays[0]; }
+
+function renderOutput(){
+  // ---- deskflow .conf: device-level links via each device's primary display ----
+  let conf = "section: screens\n";
+  devices.forEach(d => conf += `\t${slug(d.name)}:\n`);
+  conf += "end\n\nsection: links\n";
+  devices.forEach(dev => {
+    const p = primaryOf(dev); const nb = neighbours(p);
+    const lines = [];
+    for (const [side, opp] of [["left","right"],["right","left"],["up","down"],["down","up"]]) {
+      const n = nb[side];
+      if (n && n.dev !== dev) lines.push(`\t\t${side} = ${slug(n.dev.name)}`);
+    }
+    if (lines.length){ conf += `\t${slug(dev.name)}:\n${lines.join("\n")}\n`; }
+  });
+  conf += "end\n";
+  document.getElementById('outDeskflow').textContent = conf;
+
+  // ---- cozy rich layout: every display is a node ----
+  const cozy = { version: 1, cell, displays: [] };
+  devices.forEach(dev => dev.displays.forEach((dp, idx) => {
+    const nb = neighbours(dp);
+    const ref = side => nb[side] ? `${slug(nb[side].dev.name)}#${nb[side].dev.displays.indexOf(nb[side].d)+1}` : null;
+    cozy.displays.push({
+      device: slug(dev.name), index: idx+1, primary: dp.primary,
+      resolution: [dp.w, dp.h], grid: [dp.cx, dp.cy],
+      neighbours: { left: ref("left"), right: ref("right"), up: ref("up"), down: ref("down") }
+    });
+  }));
+  document.getElementById('outCozy').textContent = JSON.stringify(cozy, null, 2);
+
+  // multi-display warning
+  const multi = devices.filter(d=>d.displays.length>1).map(d=>d.name);
+  let warnEl = document.getElementById('multiWarn');
+  if (!warnEl){ warnEl=document.createElement('div'); warnEl.id='multiWarn'; warnEl.className='warn';
+    document.getElementById('outDeskflow').before(warnEl); }
+  warnEl.style.display = multi.length ? 'block':'none';
+  warnEl.textContent = multi.length ? `Note: ${multi.join(', ')} ${multi.length>1?'have':'has'} multiple displays. The .conf below collapses each to its primary; use the Cozy layout for true per-display crossing.` : '';
+}
+
+function slug(s){ return (s||'screen').trim().toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-|-$/g,'') || 'screen'; }
+function copyOut(which){
+  const txt = document.getElementById(which==='deskflow'?'outDeskflow':'outCozy').textContent;
+  navigator.clipboard.writeText(txt);
+}
+
+// ---------- wiring ----------
+document.getElementById('addDevice').onclick = () => addDevice("New device", 1);
+document.getElementById('cellSize').oninput = e => { cell = +e.target.value; renderStage(); };
+document.getElementById('resetAll').onclick = () => {
+  if (confirm("Clear the layout and reload the example?")) {
+    localStorage.removeItem(STORE_KEY); devices = []; nextId = 1; seed();
+  }
+};
+
+function seed(){
+  // realistic example: PC (2 displays), Mac (1), Android tablet (1)
+  addDevice("Windows PC", 2);
+  addDevice("MacBook", 1);
+  addDevice("Android tablet", 1);
+}
+
+// Restore a saved layout, or seed a fresh example.
+if (load()) render(); else seed();
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Cozy</string>
+    <string name="tagline">Share your PC mouse &amp; keyboard onto this tablet.</string>
+    <string name="enable_accessibility">Enable accessibility (required)</string>
+    <string name="enable_a11y_hint">Find "Cozy" under Installed apps / Downloaded services and turn it on, then come back.</string>
+    <string name="accessibility_label">Cozy input</string>
+    <string name="accessibility_description">Lets Cozy show a cursor and tap/scroll on your behalf when your PC mouse crosses onto this tablet. No data leaves the device; input comes only from the PC you connect to.</string>
+    <string name="ime_label">Cozy keyboard</string>
+    <string name="enable_keyboard">Enable Cozy keyboard (for typing)</string>
+</resources>
