@@ -11,8 +11,8 @@ android {
         applicationId = "com.cozy.kvm"
         minSdk = 26          // Android 8.0 — first version with dispatchGesture() reliable + AccessibilityService overlays
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.3"
     }
 
     buildTypes {

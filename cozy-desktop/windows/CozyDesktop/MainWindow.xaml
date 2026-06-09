@@ -109,8 +109,8 @@
                             </StackPanel>
                         </Grid>
 
-                        <CheckBox x:Name="TlsCheck" Content="Use encryption (TLS)" Foreground="{StaticResource Ink}"
-                                  Margin="2,14,0,0" IsChecked="True" />
+                        <CheckBox x:Name="TlsCheck" Content="Use encryption (TLS) — leave OFF for tablets" Foreground="{StaticResource Ink}"
+                                  Margin="2,14,0,0" IsChecked="False" />
 
                         <TextBlock x:Name="IpText" Text="" Foreground="{StaticResource Muted}" Margin="2,12,0,0" />
                     </StackPanel>

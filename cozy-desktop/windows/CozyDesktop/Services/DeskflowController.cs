@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.IO;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace CozyDesktop.Services;
@@ -147,6 +149,29 @@ public sealed class DeskflowController
     public string PcName => SanitizeName(Environment.MachineName);
 
     /// <summary>
+    /// deskflow needs a TLS cert when encryption is on, and only its GUI generates
+    /// one. Cozy makes its own self-signed PEM (PKCS8 key + cert, CN=Deskflow — the
+    /// format deskflow writes) in a user-writable spot, so encryption works headless.
+    /// Verified: the engine loads this and completes the TLS handshake.
+    /// </summary>
+    public string EnsureCertificate()
+    {
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Cozy");
+        Directory.CreateDirectory(dir);
+        var pem = Path.Combine(dir, "cozy.pem");
+        if (File.Exists(pem) && new FileInfo(pem).Length > 0) return pem;
+
+        using var rsa = RSA.Create(2048);
+        var req = new CertificateRequest("CN=Deskflow", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(5));
+        var sb = new StringBuilder();
+        sb.AppendLine(rsa.ExportPkcs8PrivateKeyPem());
+        sb.AppendLine(cert.ExportCertificatePem());
+        File.WriteAllText(pem, sb.ToString());
+        return pem;
+    }
+
+    /// <summary>
     /// Write config from an explicit link graph (used by the visual layout canvas).
     /// <paramref name="deviceNames"/> excludes the PC; <paramref name="links"/> are
     /// (fromScreen, side, toScreen) edges using the real screen names (PcName for the PC).
@@ -192,6 +217,7 @@ public sealed class DeskflowController
         ini.AppendLine($"computerName={PcName}");
         ini.AppendLine("[security]");
         ini.AppendLine($"tlsEnabled={(tls ? "true" : "false")}");
+        if (tls) ini.AppendLine($"certificate={EnsureCertificate().Replace('\\', '/')}");
         ini.AppendLine("[server]");
         ini.AppendLine("externalConfig=true");
         ini.AppendLine($"externalConfigFile={confPath.Replace('\\', '/')}");

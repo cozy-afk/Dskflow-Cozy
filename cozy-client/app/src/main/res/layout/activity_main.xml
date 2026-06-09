@@ -139,9 +139,9 @@
             android:id="@+id/useTls"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:checked="true"
+            android:checked="false"
             android:paddingTop="8dp"
-            android:text="Use encryption (turn OFF if the PC has TLS disabled)" />
+            android:text="Use encryption (leave OFF — must match the PC)" />
 
         <Button
             android:id="@+id/connect"
